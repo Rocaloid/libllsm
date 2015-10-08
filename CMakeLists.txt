@@ -13,7 +13,6 @@ aux_source_directory(. LLSM_SRC_SOURCES)
 add_library(llsm STATIC ${LLSM_SRC_SOURCES})
 
 set_target_properties(llsm PROPERTIES
-    CXX_STANDARD 11
     C_STANDARD 99
     POSITION_INDEPENDENT_CODE ON
 )
