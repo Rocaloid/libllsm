@@ -504,7 +504,7 @@ llsm* llsm_analyze(llsm_parameters param, FP_TYPE* x, int nx, int fs, FP_TYPE* f
 
   // C3
   model -> f0 = refine_f0(param, nfft, fs, f0, nf0, spectrogram, phasegram, phasegram_d);
-  FP_TYPE* rf0 = f0;
+  FP_TYPE* rf0 = model -> f0;
 
   // C4
   model -> sinu -> freq = (FP_TYPE**)malloc2d(nf0, param.a_nhar, sizeof(FP_TYPE));
@@ -523,10 +523,15 @@ llsm* llsm_analyze(llsm_parameters param, FP_TYPE* x, int nx, int fs, FP_TYPE* f
       model -> sinu -> ampl[j][i] = tmpampl[j];
       model -> sinu -> phse[j][i] = tmpphse[j];
     }
-    if(i == 0)
-      for(int j = 0; j < nf0; j ++)
-        if(fabs(rf0[j] - tmpfreq[j]) > 1)
-          rf0[j] = tmpfreq[j];
+    if(i == 5)
+      for(int j = 0; j < nf0; j ++) {
+        FP_TYPE avg_f0 = 0;
+        for(int k = 0; k < i; k ++)
+          avg_f0 += model -> sinu -> freq[j][k] / (k + 1.0);
+        avg_f0 /= i;
+        if(fabs(rf0[j] - avg_f0) > 1)
+          rf0[j] = avg_f0;
+      }
   }
   free2d(spectrogram, nf0);
   free2d(phasegram, nf0);
@@ -651,12 +656,12 @@ llsm* llsm_analyze(llsm_parameters param, FP_TYPE* x, int nx, int fs, FP_TYPE* f
     if(rf0[i] <= 0.0) continue;
     for(int j = 0; j < param.a_nhar; j ++) {
       model -> sinu -> phse[i][j] -= base * model -> sinu -> freq[i][j] / rf0[i];
-      model -> sinu -> phse[i][j] = fmod(model -> sinu -> phse[i][j], M_PI * 2.0);
+      model -> sinu -> phse[i][j] = fmod(model -> sinu -> phse[i][j] + 1001.0 * M_PI, M_PI * 2.0) - M_PI;
     }
     for(int b = 0; b < param.a_nnosband; b ++)
       for(int j = 0; j < param.a_nhare; j ++) {
         model -> nosch[b] -> eenv -> phse[i][j] -= base * model -> nosch[b] -> eenv -> freq[i][j] / rf0[i];
-        model -> nosch[b] -> eenv -> phse[i][j] = fmod(model -> nosch[b] -> eenv -> phse[i][j], M_PI * 2.0);
+        model -> nosch[b] -> eenv -> phse[i][j] = fmod(model -> nosch[b] -> eenv -> phse[i][j] + 1001.0 * M_PI, M_PI * 2.0) - M_PI;
       }
   }
   
@@ -689,14 +694,15 @@ FP_TYPE* llsm_synthesize(llsm_parameters param, llsm* model, int* ny) {
   FP_TYPE* y_sin = calloc(*ny, sizeof(FP_TYPE));
   
   // D1
-  FP_TYPE** sin_phse = (FP_TYPE**)malloc2d(nfrm * ola_factor, model -> conf.nhar , sizeof(FP_TYPE));
+  FP_TYPE** sin_phse = (FP_TYPE**)malloc2d(nfrm * ola_factor, model -> conf.nhar, sizeof(FP_TYPE));
+  FP_TYPE* sin_phse_sync = calloc(nfrm * ola_factor, sizeof(FP_TYPE));
   FP_TYPE phse0 = 0;
   for(int i = 1; i < nfrm * ola_factor; i ++) {
-    FP_TYPE f0 = model -> sinu -> freq[i / ola_factor][0];
+    FP_TYPE f0 = model -> f0[i / ola_factor];
     phse0 += f0 * nhop / ola_factor / fs * 2.0 * M_PI;
-    sin_phse[i][0] = fmod(phse0, 2.0 * M_PI) - M_PI;
-    for(int j = 1; j < model -> conf.nhar; j ++)
-      sin_phse[i][j] = sin_phse[i][0] / f0 * model -> sinu -> freq[i / ola_factor][j]
+    sin_phse_sync[i] = fmod(phse0, 2.0 * M_PI) - M_PI;
+    for(int j = 0; j < model -> conf.nhar; j ++)
+      sin_phse[i][j] = sin_phse_sync[i] / f0 * model -> sinu -> freq[i / ola_factor][j]
         + model -> sinu -> phse[i / ola_factor][j];
   }
   
@@ -731,9 +737,9 @@ FP_TYPE* llsm_synthesize(llsm_parameters param, llsm* model, int* ny) {
     // D1
     FP_TYPE** b_phse = (FP_TYPE**)copy2d(b_channel -> eenv -> phse, nfrm, model -> conf.nhare, sizeof(FP_TYPE));
     for(int i = 0; i < nfrm; i ++) {
-      FP_TYPE f0 = model -> sinu -> freq[i][0];
+      FP_TYPE f0 = model -> f0[i];
       for(int j = 0; j < model -> conf.nhare; j ++)
-        b_phse[i][j] = sin_phse[i * ola_factor][0] / f0 * b_channel -> eenv -> freq[i][j] + b_channel -> eenv -> phse[i][j];
+        b_phse[i][j] = sin_phse_sync[i * ola_factor] / f0 * b_channel -> eenv -> freq[i][j] + b_channel -> eenv -> phse[i][j];
     }
     
     // D3
@@ -781,12 +787,8 @@ FP_TYPE* llsm_synthesize(llsm_parameters param, llsm* model, int* ny) {
       for(int j = 0; j < nhop * 2; j ++)
         hfrm[j] *= sqrt(1.0 / (havg + EPS));
       
-      if(model -> f0[i] <= 0.0)
-        for(int j = 0; j < nhop * 2; j ++)
-         efrm[j] = havg;
-      else
-        for(int j = 0; j < nhop * 2; j ++)
-          efrm[j] += b_channel -> emin[i];
+      for(int j = 0; j < nhop * 2; j ++)
+        efrm[j] += b_channel -> emin[i];
       
       for(int j = 0; j < nhop * 2; j ++)
         if(i * nhop + j - nhop > 0) {
@@ -816,6 +818,7 @@ FP_TYPE* llsm_synthesize(llsm_parameters param, llsm* model, int* ny) {
     free(b_env_mix);
     free(b_env);
   }
+  free(sin_phse_sync);
   free2d(sin_phse, nfrm * ola_factor);
   free(s);
 
