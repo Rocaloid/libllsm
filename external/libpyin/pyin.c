@@ -49,17 +49,17 @@ static int* find_valleys(FP_TYPE* x, int nx, FP_TYPE threshold, FP_TYPE step, in
 }
 
 double ptransition_same(void* task, int ds, int t) {
-  int ntran = *((int*)task);
-  return 0.998 * (1.0 - (double)ds / (ntran + 1)) * (ntran + 1);
+  pyin_paramters* param = (pyin_paramters*)task;
+  return (1.0 - param -> ptrans) * (1.0 - (double)ds / (param -> trange + 1)) * (param -> trange + 1);
 }
     
 double ptransition_diff(void* task, int ds, int t) {
-  int ntran = *((int*)task);
-  return 0.002 * (1.0 - (double)ds / (ntran + 1)) * (ntran + 1);
+  pyin_paramters* param = (pyin_paramters*)task;
+  return param -> ptrans * (1.0 - (double)ds / (param -> trange + 1)) * (param -> trange + 1);
 }
     
 int fntran(void* task, int t) {
-  return *((int*)task);
+  return ((pyin_paramters*)task) -> trange;
 }
 
 pyin_paramters pyin_init(int nhop) {
@@ -70,8 +70,9 @@ pyin_paramters pyin_init(int nhop) {
   ret.w = 300;
   ret.beta_a = 1.7;
   ret.beta_u = 0.2;
-  ret.emph = 0.5;
+  ret.bias = 1.0;
   ret.trange = 12;
+  ret.ptrans = 0.003;
   ret.nf = 1024;
   ret.nhop = nhop;
   return ret;
@@ -115,7 +116,7 @@ FP_TYPE* pyin_analyze(pyin_paramters param, FP_TYPE* x, int nx, FP_TYPE fs, int*
       for(int k = floor(v1 * 100); k < floor(v0 * 100); k ++)
         p += betapdf[k];
       p = p > 0.99 ? 0.99 : p;
-      p = (sqrt(1 - (1 - p) * (1 - p)) - p) * param.emph + p;
+      p *= param.bias;
       
       obsrv -> slice[i] -> pair[j].state = bin;
       obsrv -> slice[i] -> pair[j].p = p;
@@ -126,7 +127,7 @@ FP_TYPE* pyin_analyze(pyin_paramters param, FP_TYPE* x, int nx, FP_TYPE fs, int*
     free(xfrm);
   }
 
-  gvps_sparse_sampled_hidden_static(pint, & param.trange, smtdesc.nq, obsrv,
+  gvps_sparse_sampled_hidden_static(pint, & param, smtdesc.nq, obsrv,
     ptransition_same, ptransition_diff, fntran, 4);
   
   for(int i = 0; i < *nfrm; i ++) {
