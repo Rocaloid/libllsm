@@ -52,6 +52,10 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS WITH THE SOFTWARE.
 
 #define FP_TYPE double
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
   llsm_sinparam: model parameters for sinusoidal signals
 */
@@ -140,6 +144,10 @@ void llsm_deinit(llsm_parameters dst);
 llsm* llsm_analyze(llsm_parameters param, FP_TYPE* x, int nx, int fs, FP_TYPE* f0, int nf0);
 FP_TYPE* llsm_synthesize(llsm_parameters param, llsm* model, int* ny);
 void llsm_delete(llsm* model);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 
